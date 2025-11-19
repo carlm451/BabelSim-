@@ -19,12 +19,30 @@
 
 body {
     background-color: var(--bg-color);
+    background-image: url('rozier-babel-library-scaled.jpg');
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+    background-repeat: no-repeat;
     color: var(--text-color);
     font-family: var(--font-body);
     height: 100vh;
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    position: relative;
+}
+
+body::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(245, 245, 247, 0.85);
+    z-index: -1;
+    pointer-events: none;
 }
 
 .container {
