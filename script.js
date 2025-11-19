@@ -255,10 +255,11 @@ document.getElementById('btnReset').addEventListener('click', async () => {
     document.getElementById('btnScramble').classList.remove('active');
 
     const size = parseInt(document.getElementById('rngSize').value);
+    const pattern = document.getElementById('selPattern').value;
     const response = await fetch('/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ size: size })
+        body: JSON.stringify({ size: size, pattern: pattern })
     });
     const data = await response.json();
     renderer.draw(data);
@@ -279,10 +280,11 @@ document.getElementById('rngSize').addEventListener('change', async (e) => {
     document.getElementById('btnScramble').classList.remove('active');
 
     const size = parseInt(e.target.value);
+    const pattern = document.getElementById('selPattern').value;
     const response = await fetch('/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ size: size })
+        body: JSON.stringify({ size: size, pattern: pattern })
     });
     const data = await response.json();
     renderer.draw(data);
@@ -709,10 +711,11 @@ document.getElementById('btnReset').addEventListener('click', async () => {
     document.getElementById('btnScramble').classList.remove('active');
 
     const size = parseInt(document.getElementById('rngSize').value);
+    const pattern = document.getElementById('selPattern').value;
     const response = await fetch('/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ size: size })
+        body: JSON.stringify({ size: size, pattern: pattern })
     });
     const data = await response.json();
     renderer.draw(data);
@@ -738,10 +741,11 @@ document.getElementById('rngSize').addEventListener('change', async (e) => {
     document.getElementById('btnScramble').classList.remove('active');
 
     const size = parseInt(e.target.value);
+    const pattern = document.getElementById('selPattern').value;
     const response = await fetch('/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ size: size })
+        body: JSON.stringify({ size: size, pattern: pattern })
     });
     const data = await response.json();
     renderer.draw(data);

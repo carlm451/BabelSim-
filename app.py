@@ -172,19 +172,72 @@ class HexGrid:
                 result[(c, r)] = doors
         return result
 
-    def reset_to_organized(self):
+    def reset_to_organized(self, pattern="vertical"):
         # Reset both backends
         self.cells_dict = {}
         self.cells_array.fill(0)
 
+        if pattern == "vertical":
+            self._init_vertical()
+        elif pattern == "diagonal_1":
+            self._init_diagonal_1()
+        elif pattern == "diagonal_2":
+            self._init_diagonal_2()
+        elif pattern == "concentric":
+            self._init_concentric()
+        else:
+            self._init_vertical() # Fallback
+
+        self._dict_dirty = True
+
+    def _init_vertical(self):
+        """Vertical lines (North-South)"""
         for c in range(self.size):
             for r in range(self.size):
                 # Vertical connections: 0 (North) and 3 (South)
                 self.cells_dict[(c, r)] = [0, 3]
-                # Set bits 0 and 3
                 self.cells_array[c, r] = (1 << 0) | (1 << 3)
 
-        self._dict_dirty = True
+    def _init_diagonal_1(self):
+        """Diagonal lines (NE-SW)"""
+        # Directions: 1 (NE) and 4 (SW)
+        for c in range(self.size):
+            for r in range(self.size):
+                self.cells_dict[(c, r)] = [1, 4]
+                self.cells_array[c, r] = (1 << 1) | (1 << 4)
+
+    def _init_diagonal_2(self):
+        """Diagonal lines (NW-SE)"""
+        # Directions: 2 (SE) and 5 (NW)
+        # Note: "SE" is direction 2, "NW" is direction 5
+        for c in range(self.size):
+            for r in range(self.size):
+                self.cells_dict[(c, r)] = [2, 5]
+                self.cells_array[c, r] = (1 << 2) | (1 << 5)
+
+    def _init_concentric(self):
+        """Zig-Zag / Waves (Alternating Columns)"""
+        # Pattern:
+        # Even Cols: [1, 5] (NE, NW)
+        # Odd Cols: [2, 4] (SE, SW)
+        # Exception: If N is Odd, the last column (N-1, Even) must bridge to Col 0.
+        # It uses [2, 5] (SE, NW) to connect N-2(Odd) -> N-1 -> 0(Even).
+        
+        for c in range(self.size):
+            dirs = []
+            if self.size % 2 != 0 and c == self.size - 1:
+                # Last column for Odd N
+                dirs = [2, 5]
+            elif c % 2 == 0:
+                # Even columns
+                dirs = [1, 5]
+            else:
+                # Odd columns
+                dirs = [2, 4]
+                
+            for r in range(self.size):
+                self.cells_dict[(c, r)] = dirs
+                self.cells_array[c, r] = (1 << dirs[0]) | (1 << dirs[1])
 
     def _init_neighbor_table(self):
         """Precompute all neighbor coordinates for fast lookup"""
@@ -529,7 +582,7 @@ def reset():
         except ValueError:
             pass # Keep current size if invalid
             
-    grid.reset_to_organized()
+    grid.reset_to_organized(pattern=data.get('pattern', 'vertical'))
     return jsonify({
         "cells": grid.to_dict(),
         "loops": grid.find_loops(),

@@ -28,6 +28,15 @@
                     <input type="checkbox" id="chkLongestOnly">
                     <label for="chkLongestOnly">Show Longest Only (Paused)</label>
                 </div>
+                <div class="control-row">
+                    <label for="selPattern">Start Pattern:</label>
+                    <select id="selPattern">
+                        <option value="vertical">Vertical Lines</option>
+                        <option value="diagonal_1">Diagonal (NE-SW)</option>
+                        <option value="diagonal_2">Diagonal (NW-SE)</option>
+                        <option value="concentric">Zig-Zag / Waves</option>
+                    </select>
+                </div>
                 <button id="btnReset" class="btn secondary">Reset (Organized)</button>
                 <button id="btnScramble" class="btn primary">Scramble (MCMC)</button>
             </div>
