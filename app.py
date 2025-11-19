@@ -215,37 +215,45 @@ class HexGrid:
         return -1
 
     def scramble(self, steps=1):
-        swaps = 0
-        attempts = 0
+        # Phase 3 optimization: Pre-generate all random numbers with NumPy
         max_attempts = steps * 20
-        
-        while swaps < steps and attempts < max_attempts:
-            attempts += 1
-            if self.perform_swap():
+
+        # Generate batch of random cell coordinates (col, row for cells u and x)
+        # Shape: (max_attempts, 4) = [uc, ur, xc, xr] for each attempt
+        random_cells = np.random.randint(0, self.size, size=(max_attempts, 4), dtype=np.int16)
+
+        # Generate random direction indices (for selecting which door to use)
+        # Shape: (max_attempts, 2) = [dir_idx_u, dir_idx_x] for each attempt
+        random_dir_indices = np.random.randint(0, 2, size=(max_attempts, 2), dtype=np.uint8)
+
+        swaps = 0
+        for attempt in range(max_attempts):
+            if swaps >= steps:
+                break
+            if self.perform_swap_vectorized(random_cells[attempt], random_dir_indices[attempt]):
                 swaps += 1
         return swaps
 
-    def perform_swap(self):
-        # Pick random cell u
-        uc = random.randint(0, self.size - 1)
-        ur = random.randint(0, self.size - 1)
+    def perform_swap_vectorized(self, cell_coords, dir_indices):
+        """Vectorized swap using pre-generated random numbers"""
+        # Unpack pre-generated random coordinates (convert to Python int for speed)
+        uc = int(cell_coords[0])
+        ur = int(cell_coords[1])
+        xc = int(cell_coords[2])
+        xr = int(cell_coords[3])
+
         u_doors = self.get_cell_doors(uc, ur)
-        
         if not u_doors: return False
-        
-        # Pick random door from u to v
-        dir_uv = random.choice(u_doors)
+
+        # Use pre-generated random index to select door (modulo to handle varying door counts)
+        dir_uv = u_doors[int(dir_indices[0]) % len(u_doors)]
         vc, vr = self.get_neighbor_coords(uc, ur, dir_uv)
-        
-        # Pick random cell x
-        xc = random.randint(0, self.size - 1)
-        xr = random.randint(0, self.size - 1)
+
         x_doors = self.get_cell_doors(xc, xr)
-        
         if not x_doors: return False
-        
-        # Pick random door from x to y
-        dir_xy = random.choice(x_doors)
+
+        # Use pre-generated random index to select door
+        dir_xy = x_doors[int(dir_indices[1]) % len(x_doors)]
         yc, yr = self.get_neighbor_coords(xc, xr, dir_xy)
         
         # Ensure distinct vertices
@@ -284,48 +292,59 @@ class HexGrid:
         return False
     
     def find_loops(self):
-        visited = set()
+        # Phase 3 optimization: NumPy boolean array for O(1) visited checks
+        visited = np.zeros((self.size, self.size), dtype=bool)
         loops = []
-        
+
+        # Pre-allocate loop storage (worst case: all cells in one loop)
+        max_loop_size = self.size * self.size
+        loop_coords = np.zeros((max_loop_size, 2), dtype=np.int16)
+
         for c in range(self.size):
             for r in range(self.size):
-                cell_key = (c, r)
-                if cell_key in visited:
+                if visited[c, r]:
                     continue
-                
-                loop = []
-                curr = cell_key
-                prev = None
-                
+
+                loop_idx = 0
+                curr_c, curr_r = c, r
+                prev_c, prev_r = -1, -1
+
                 while True:
-                    if curr in visited and curr != cell_key:
-                        break
-                    if curr in visited and curr == cell_key and len(loop) > 0:
-                        break
-                    
-                    visited.add(curr)
-                    loop.append({"q": curr[0], "r": curr[1]}) # Keeping key names q/r for frontend compat for now, but values are c,r
-                    
-                    doors = self.get_cell_doors(curr[0], curr[1])
+                    # Check if already visited (except for starting cell on first iteration)
+                    if visited[curr_c, curr_r]:
+                        if curr_c == c and curr_r == r and loop_idx > 0:
+                            break  # Completed the loop
+                        else:
+                            break  # Hit another loop
+
+                    visited[curr_c, curr_r] = True
+                    loop_coords[loop_idx, 0] = curr_c
+                    loop_coords[loop_idx, 1] = curr_r
+                    loop_idx += 1
+
+                    doors = self.get_cell_doors(curr_c, curr_r)
                     if not doors: break
-                    
+
                     next_dir = doors[0]
-                    nc, nr = self.get_neighbor_coords(curr[0], curr[1], next_dir)
-                    next_cell = (nc, nr)
-                    
-                    if prev is not None and next_cell == prev:
+                    nc, nr = self.get_neighbor_coords(curr_c, curr_r, next_dir)
+
+                    # Avoid backtracking
+                    if prev_c != -1 and nc == prev_c and nr == prev_r:
                         if len(doors) > 1:
                             next_dir = doors[1]
-                            nc, nr = self.get_neighbor_coords(curr[0], curr[1], next_dir)
-                            next_cell = (nc, nr)
+                            nc, nr = self.get_neighbor_coords(curr_c, curr_r, next_dir)
                         else:
                             break
-                    
-                    prev = curr
-                    curr = next_cell
-                
-                if loop:
+
+                    prev_c, prev_r = curr_c, curr_r
+                    curr_c, curr_r = nc, nr
+
+                # Convert to list format for JSON compatibility
+                if loop_idx > 0:
+                    loop = [{"q": int(loop_coords[i, 0]), "r": int(loop_coords[i, 1])}
+                            for i in range(loop_idx)]
                     loops.append(loop)
+
         return loops
 
     def to_dict(self):
@@ -334,18 +353,23 @@ class HexGrid:
             return self._cached_dict
 
         if self._use_array:
-            # Build from array backend
+            # Phase 3 optimization: Vectorized bit extraction with NumPy broadcasting
+            # Create mask for each direction: shape (6, 1, 1) for broadcasting
+            dir_masks = np.array([1 << i for i in range(6)], dtype=np.uint8)[:, None, None]
+
+            # Broadcasting: (6, size, size) & (6, 1, 1) -> (6, size, size)
+            # has_door[dir, c, r] = True if cell (c,r) has door in direction dir
+            has_door = (self.cells_array[None, :, :] & dir_masks) != 0
+
+            # Build dict with vectorized door extraction
             self._cached_dict = {}
             for c in range(self.size):
                 for r in range(self.size):
-                    doors = []
-                    bits = self.cells_array[c, r]
-                    for dir_idx in range(6):
-                        if bits & (1 << dir_idx):
-                            doors.append(dir_idx)
+                    # Extract doors for this cell using boolean indexing
+                    doors = np.where(has_door[:, c, r])[0].tolist()
                     self._cached_dict[f"{c},{r}"] = {"q": c, "r": r, "doors": doors}
         else:
-            # Build from dict backend
+            # Build from dict backend (already optimal)
             self._cached_dict = {f"{k[0]},{k[1]}": {"q": k[0], "r": k[1], "doors": v}
                                  for k, v in self.cells_dict.items()}
 

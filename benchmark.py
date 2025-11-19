@@ -65,7 +65,8 @@ def main():
     """Run benchmarks for various grid sizes"""
     print("\n" + "="*60)
     print("BABEL SIMULATION PERFORMANCE BENCHMARK")
-    print("Phase 1 Optimizations: Neighbor table + JSON caching")
+    print("Phase 1: Neighbor table + JSON caching")
+    print("Phase 3: NumPy vectorization (loops, serialize, scramble)")
     print("="*60)
 
     sizes = [10, 25, 50, 75, 100, 125, 150]
