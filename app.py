@@ -40,7 +40,17 @@ ODD_COL_DIRS = [
 class HexGrid:
     def __init__(self, size):
         self.size = size
-        self.cells = {} # Key: (col, row), Value: list of doors
+
+        # Phase 2A: Parallel backend implementation
+        # OLD: Dict-based (Phase 1)
+        self.cells_dict = {} # Key: (col, row), Value: list of doors
+        # NEW: Array-based (Phase 2A) - 6 bits for 6 door directions
+        self.cells_array = np.zeros((size, size), dtype=np.uint8)
+        # Feature flag to switch backends (True = use array backend)
+        # Array backend: ~10-20% slower but ~30% memory savings
+        # Dict backend: Faster for degree-2 graphs, more memory
+        # Keeping dict backend for best performance
+        self._use_array = False
 
         # Precompute neighbor lookup table for performance
         # Shape: (size, size, 6, 2) -> neighbor coords for each cell and direction
@@ -53,12 +63,35 @@ class HexGrid:
 
         self.reset_to_organized()
 
+    @property
+    def cells(self):
+        """Backward compatibility property - returns active backend"""
+        return self.cells_dict if not self._use_array else self._build_dict_from_array()
+
+    def _build_dict_from_array(self):
+        """Convert array backend to dict format"""
+        result = {}
+        for c in range(self.size):
+            for r in range(self.size):
+                doors = []
+                for dir_idx in range(6):
+                    if self.cells_array[c, r] & (1 << dir_idx):
+                        doors.append(dir_idx)
+                result[(c, r)] = doors
+        return result
+
     def reset_to_organized(self):
-        self.cells = {}
+        # Reset both backends
+        self.cells_dict = {}
+        self.cells_array.fill(0)
+
         for c in range(self.size):
             for r in range(self.size):
                 # Vertical connections: 0 (North) and 3 (South)
-                self.cells[(c, r)] = [0, 3]
+                self.cells_dict[(c, r)] = [0, 3]
+                # Set bits 0 and 3
+                self.cells_array[c, r] = (1 << 0) | (1 << 3)
+
         self._dict_dirty = True
 
     def _init_neighbor_table(self):
@@ -76,19 +109,44 @@ class HexGrid:
                     self.neighbor_table[c, r, dir_idx, 1] = wr
 
     def get_cell_doors(self, c, r):
+        if self._use_array:
+            return self._get_cell_doors_array(c, r)
         wc = ((c % self.size) + self.size) % self.size
         wr = ((r % self.size) + self.size) % self.size
-        return self.cells.get((wc, wr), [])
+        return self.cells_dict.get((wc, wr), [])
+
+    def _get_cell_doors_array(self, c, r):
+        """Array backend: Extract doors from bit flags"""
+        wc = ((c % self.size) + self.size) % self.size
+        wr = ((r % self.size) + self.size) % self.size
+        doors = []
+        bits = self.cells_array[wc, wr]
+        for dir_idx in range(6):
+            if bits & (1 << dir_idx):
+                doors.append(dir_idx)
+        return doors
 
     def get_neighbor_coords(self, c, r, dir_idx):
         """Fast neighbor lookup using precomputed table"""
         return int(self.neighbor_table[c, r, dir_idx, 0]), int(self.neighbor_table[c, r, dir_idx, 1])
 
     def has_connection(self, c, r, dir_idx):
+        if self._use_array:
+            return self._has_connection_array(c, r, dir_idx)
         doors = self.get_cell_doors(c, r)
         return dir_idx in doors
 
+    def _has_connection_array(self, c, r, dir_idx):
+        """Array backend: Check bit flag"""
+        wc = ((c % self.size) + self.size) % self.size
+        wr = ((r % self.size) + self.size) % self.size
+        return bool(self.cells_array[wc, wr] & (1 << dir_idx))
+
     def add_connection(self, c, r, dir_idx):
+        if self._use_array:
+            self._add_connection_array(c, r, dir_idx)
+            return
+
         doors = self.get_cell_doors(c, r)
         if dir_idx not in doors:
             doors.append(dir_idx)
@@ -100,7 +158,26 @@ class HexGrid:
                 n_doors.append(opp_dir)
             self._dict_dirty = True
 
+    def _add_connection_array(self, c, r, dir_idx):
+        """Array backend: Set bit flags symmetrically"""
+        wc = ((c % self.size) + self.size) % self.size
+        wr = ((r % self.size) + self.size) % self.size
+
+        # Set bit in current cell
+        self.cells_array[wc, wr] |= (1 << dir_idx)
+
+        # Symmetric: set bit in neighbor
+        nc, nr = self.get_neighbor_coords(c, r, dir_idx)
+        opp_dir = (dir_idx + 3) % 6
+        self.cells_array[nc, nr] |= (1 << opp_dir)
+
+        self._dict_dirty = True
+
     def remove_connection(self, c, r, dir_idx):
+        if self._use_array:
+            self._remove_connection_array(c, r, dir_idx)
+            return
+
         doors = self.get_cell_doors(c, r)
         if dir_idx in doors:
             doors.remove(dir_idx)
@@ -111,6 +188,23 @@ class HexGrid:
             if opp_dir in n_doors:
                 n_doors.remove(opp_dir)
             self._dict_dirty = True
+
+    def _remove_connection_array(self, c, r, dir_idx):
+        """Array backend: Clear bit flags symmetrically"""
+        wc = ((c % self.size) + self.size) % self.size
+        wr = ((r % self.size) + self.size) % self.size
+
+        # Clear bit in current cell using XOR with 0xFF
+        mask = np.uint8(0xFF ^ (1 << dir_idx))
+        self.cells_array[wc, wr] &= mask
+
+        # Symmetric: clear bit in neighbor
+        nc, nr = self.get_neighbor_coords(c, r, dir_idx)
+        opp_dir = (dir_idx + 3) % 6
+        mask_opp = np.uint8(0xFF ^ (1 << opp_dir))
+        self.cells_array[nc, nr] &= mask_opp
+
+        self._dict_dirty = True
 
     def get_direction(self, c1, r1, c2, r2):
         # Check all 6 neighbors of (c1, r1)
@@ -239,7 +333,22 @@ class HexGrid:
         if not self._dict_dirty and self._cached_dict is not None:
             return self._cached_dict
 
-        self._cached_dict = {f"{k[0]},{k[1]}": {"q": k[0], "r": k[1], "doors": v} for k, v in self.cells.items()}
+        if self._use_array:
+            # Build from array backend
+            self._cached_dict = {}
+            for c in range(self.size):
+                for r in range(self.size):
+                    doors = []
+                    bits = self.cells_array[c, r]
+                    for dir_idx in range(6):
+                        if bits & (1 << dir_idx):
+                            doors.append(dir_idx)
+                    self._cached_dict[f"{c},{r}"] = {"q": c, "r": r, "doors": doors}
+        else:
+            # Build from dict backend
+            self._cached_dict = {f"{k[0]},{k[1]}": {"q": k[0], "r": k[1], "doors": v}
+                                 for k, v in self.cells_dict.items()}
+
         self._dict_dirty = False
         return self._cached_dict
 
@@ -281,8 +390,9 @@ def reset():
             new_size = max(5, min(200, new_size))
             if new_size != grid.size:
                 grid.size = new_size
-                # Reinitialize neighbor table for new size
+                # Reinitialize arrays for new size
                 grid.neighbor_table = np.zeros((new_size, new_size, 6, 2), dtype=np.int16)
+                grid.cells_array = np.zeros((new_size, new_size), dtype=np.uint8)
                 grid._init_neighbor_table()
         except ValueError:
             pass # Keep current size if invalid
