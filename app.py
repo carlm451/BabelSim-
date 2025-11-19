@@ -1,6 +1,7 @@
 import random
 from flask import Flask, jsonify, request, send_from_directory
 import numpy as np
+from numba import jit
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 
@@ -37,6 +38,93 @@ ODD_COL_DIRS = [
     (-1, 0)   # 5: NW
 ]
 
+@jit(nopython=True, cache=True)
+def _find_loops_numba(cells_array, neighbor_table, size):
+    """Numba-optimized core loop finding logic"""
+    visited = np.zeros((size, size), dtype=np.bool_)
+
+    # Store all loops as list of coordinate arrays
+    # We can't return a list of lists directly from nopython mode easily if they are irregular
+    # So we'll return a list of arrays, where each array is a loop
+    # Numba supports lists of arrays in nopython mode
+    all_loops = []
+
+    for start_c in range(size):
+        for start_r in range(size):
+            if visited[start_c, start_r]:
+                continue
+
+            # Pre-allocate loop storage
+            # Max loop size is size*size
+            loop_coords = np.empty((size * size, 2), dtype=np.int16)
+            loop_len = 0
+
+            curr_c, curr_r = start_c, start_r
+            prev_c, prev_r = np.int16(-1), np.int16(-1)
+
+            # Traverse loop
+            # Use a safe upper bound for iterations to avoid infinite loops in case of bugs
+            for _ in range(size * size + 1):
+                # Check termination
+                if visited[curr_c, curr_r]:
+                    if curr_c == start_c and curr_r == start_r and loop_len > 0:
+                        break  # Completed loop
+                    else:
+                        loop_len = 0  # Hit another loop or merged into existing path
+                        break
+
+                # Mark visited and record
+                visited[curr_c, curr_r] = True
+                loop_coords[loop_len, 0] = curr_c
+                loop_coords[loop_len, 1] = curr_r
+                loop_len += 1
+
+                # Extract doors from bit flags
+                bits = cells_array[curr_c, curr_r]
+                doors = np.empty(6, dtype=np.int8)
+                door_count = 0
+                for dir_idx in range(6):
+                    if bits & (1 << dir_idx):
+                        doors[door_count] = dir_idx
+                        door_count += 1
+
+                if door_count == 0:
+                    loop_len = 0
+                    break
+
+                # Find next cell (avoiding backtrack)
+                next_c, next_r = np.int16(-1), np.int16(-1)
+                
+                # Default to first door
+                found_next = False
+                
+                for i in range(door_count):
+                    dir_idx = doors[i]
+                    nc = np.int16(neighbor_table[curr_c, curr_r, dir_idx, 0])
+                    nr = np.int16(neighbor_table[curr_c, curr_r, dir_idx, 1])
+
+                    # Skip if this is where we came from
+                    if prev_c >= 0 and nc == prev_c and nr == prev_r:
+                        continue
+
+                    next_c, next_r = nc, nr
+                    found_next = True
+                    break
+                
+                if not found_next:
+                     loop_len = 0
+                     break
+
+                prev_c, prev_r = curr_c, curr_r
+                curr_c, curr_r = next_c, next_r
+
+            # Store valid loop
+            if loop_len > 0:
+                # We must copy the slice to a new array to store it
+                all_loops.append(loop_coords[:loop_len].copy())
+
+    return all_loops
+
 class HexGrid:
     def __init__(self, size):
         self.size = size
@@ -50,12 +138,16 @@ class HexGrid:
         # Array backend: ~10-20% slower but ~30% memory savings
         # Dict backend: Faster for degree-2 graphs, more memory
         # Keeping dict backend for best performance
-        self._use_array = False
+        self._use_array = True
 
         # Precompute neighbor lookup table for performance
         # Shape: (size, size, 6, 2) -> neighbor coords for each cell and direction
         self.neighbor_table = np.zeros((size, size, 6, 2), dtype=np.int16)
         self._init_neighbor_table()
+
+        if self._use_array:
+             # Warmup Numba compilation
+             _find_loops_numba(self.cells_array, self.neighbor_table, self.size)
 
         # Cache for JSON serialization
         self._cached_dict = None
@@ -292,6 +384,22 @@ class HexGrid:
         return False
     
     def find_loops(self):
+        if self._use_array:
+            # Call Numba-optimized function
+            loops_numba = _find_loops_numba(
+                self.cells_array,
+                self.neighbor_table,
+                self.size
+            )
+
+            # Convert to JSON-compatible format
+            loops = []
+            for loop_coords in loops_numba:
+                loop = [{"q": int(loop_coords[i, 0]), "r": int(loop_coords[i, 1])}
+                        for i in range(len(loop_coords))]
+                loops.append(loop)
+            return loops
+
         # Phase 3 optimization: NumPy boolean array for O(1) visited checks
         visited = np.zeros((self.size, self.size), dtype=bool)
         loops = []
