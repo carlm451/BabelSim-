@@ -226,50 +226,6 @@ const renderer = new Renderer(canvas);
 // Animation Loop for "Scramble"
 window.isScrambling = false;
 
-async function fetchState() {
-    const response = await fetch('/state');
-    const data = await response.json();
-    renderer.draw(data);
-    // Update slider to match backend state
-    document.getElementById('rngSize').value = data.size;
-    document.getElementById('lblSize').innerText = data.size;
-}
-
-async function scrambleStep() {
-    if (!window.isScrambling) return;
-
-    // Scale steps based on grid size
-    // For N=10 (100 cells), 5 steps is good.
-    // For N=50 (2500 cells), we need more steps to see progress.
-    // Let's try steps = N / 2 ?
-    const currentSize = parseInt(document.getElementById('rngSize').value);
-    const steps = Math.max(1, Math.floor(currentSize / 2));
-
-    const response = await fetch('/scramble', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ steps: steps })
-    });
-    const data = await response.json();
-    renderer.draw(data);
-    requestAnimationFrame(scrambleStep);
-}
-
-document.getElementById('btnScramble').addEventListener('click', () => {
-    window.isScrambling = !window.isScrambling;
-    const btn = document.getElementById('btnScramble');
-    if (window.isScrambling) {
-        btn.innerText = "Stop Scrambling";
-        btn.classList.add('active');
-        scrambleStep();
-    } else {
-        btn.innerText = "Scramble (MCMC)";
-        btn.classList.remove('active');
-        // Redraw to apply filter if needed
-        renderer.draw(renderer.lastData);
-    }
-});
-
 document.getElementById('btnReset').addEventListener('click', async () => {
     window.isScrambling = false;
     document.getElementById('btnScramble').innerText = "Scramble (MCMC)";
@@ -405,22 +361,43 @@ async function fetchState() {
     histogram.update(data.loops);
 }
 
+let scrambleFrameCount = 0;
+
 async function scrambleStep() {
     if (!window.isScrambling) return;
 
-    // Scale steps based on grid size
-    const currentSize = parseInt(document.getElementById('rngSize').value);
-    const steps = Math.max(1, Math.floor(currentSize / 2));
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2000); // 2s timeout
 
-    const response = await fetch('/scramble', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ steps: steps })
-    });
-    const data = await response.json();
-    renderer.draw(data);
-    histogram.update(data.loops);
-    requestAnimationFrame(scrambleStep);
+        // Scale steps based on grid size
+        const currentSize = parseInt(document.getElementById('rngSize').value);
+        const steps = Math.max(1, Math.floor(currentSize / 2));
+
+        const response = await fetch('/scramble', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ steps: steps }),
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+        const data = await response.json();
+        renderer.draw(data);
+
+        scrambleFrameCount++;
+        if (scrambleFrameCount % 10 === 0) {
+            histogram.update(data.loops);
+        }
+    } catch (e) {
+        console.error("Scramble loop error:", e);
+    }
+
+    if (window.isScrambling) {
+        requestAnimationFrame(scrambleStep);
+    }
 }
 
 document.getElementById('btnScramble').addEventListener('click', () => {
