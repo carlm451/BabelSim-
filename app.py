@@ -41,6 +41,16 @@ class HexGrid:
     def __init__(self, size):
         self.size = size
         self.cells = {} # Key: (col, row), Value: list of doors
+
+        # Precompute neighbor lookup table for performance
+        # Shape: (size, size, 6, 2) -> neighbor coords for each cell and direction
+        self.neighbor_table = np.zeros((size, size, 6, 2), dtype=np.int16)
+        self._init_neighbor_table()
+
+        # Cache for JSON serialization
+        self._cached_dict = None
+        self._dict_dirty = True
+
         self.reset_to_organized()
 
     def reset_to_organized(self):
@@ -49,6 +59,21 @@ class HexGrid:
             for r in range(self.size):
                 # Vertical connections: 0 (North) and 3 (South)
                 self.cells[(c, r)] = [0, 3]
+        self._dict_dirty = True
+
+    def _init_neighbor_table(self):
+        """Precompute all neighbor coordinates for fast lookup"""
+        for c in range(self.size):
+            for r in range(self.size):
+                dirs = EVEN_COL_DIRS if c % 2 == 0 else ODD_COL_DIRS
+                for dir_idx, (dc, dr) in enumerate(dirs):
+                    nc = c + dc
+                    nr = r + dr
+                    # Apply wrapping
+                    wc = ((nc % self.size) + self.size) % self.size
+                    wr = ((nr % self.size) + self.size) % self.size
+                    self.neighbor_table[c, r, dir_idx, 0] = wc
+                    self.neighbor_table[c, r, dir_idx, 1] = wr
 
     def get_cell_doors(self, c, r):
         wc = ((c % self.size) + self.size) % self.size
@@ -56,18 +81,8 @@ class HexGrid:
         return self.cells.get((wc, wr), [])
 
     def get_neighbor_coords(self, c, r, dir_idx):
-        if c % 2 == 0:
-            dc, dr = EVEN_COL_DIRS[dir_idx]
-        else:
-            dc, dr = ODD_COL_DIRS[dir_idx]
-            
-        nc = c + dc
-        nr = r + dr
-        
-        # Wrap
-        wc = ((nc % self.size) + self.size) % self.size
-        wr = ((nr % self.size) + self.size) % self.size
-        return wc, wr
+        """Fast neighbor lookup using precomputed table"""
+        return int(self.neighbor_table[c, r, dir_idx, 0]), int(self.neighbor_table[c, r, dir_idx, 1])
 
     def has_connection(self, c, r, dir_idx):
         doors = self.get_cell_doors(c, r)
@@ -83,6 +98,7 @@ class HexGrid:
             n_doors = self.get_cell_doors(nc, nr)
             if opp_dir not in n_doors:
                 n_doors.append(opp_dir)
+            self._dict_dirty = True
 
     def remove_connection(self, c, r, dir_idx):
         doors = self.get_cell_doors(c, r)
@@ -94,6 +110,7 @@ class HexGrid:
             n_doors = self.get_cell_doors(nc, nr)
             if opp_dir in n_doors:
                 n_doors.remove(opp_dir)
+            self._dict_dirty = True
 
     def get_direction(self, c1, r1, c2, r2):
         # Check all 6 neighbors of (c1, r1)
@@ -218,7 +235,13 @@ class HexGrid:
         return loops
 
     def to_dict(self):
-        return {f"{k[0]},{k[1]}": {"q": k[0], "r": k[1], "doors": v} for k, v in self.cells.items()}
+        """Convert grid to dict format with caching"""
+        if not self._dict_dirty and self._cached_dict is not None:
+            return self._cached_dict
+
+        self._cached_dict = {f"{k[0]},{k[1]}": {"q": k[0], "r": k[1], "doors": v} for k, v in self.cells.items()}
+        self._dict_dirty = False
+        return self._cached_dict
 
 grid = HexGrid(GRID_SIZE)
 
@@ -256,7 +279,11 @@ def reset():
             new_size = int(new_size)
             # Clamp size to safe limits
             new_size = max(5, min(200, new_size))
-            grid.size = new_size
+            if new_size != grid.size:
+                grid.size = new_size
+                # Reinitialize neighbor table for new size
+                grid.neighbor_table = np.zeros((new_size, new_size, 6, 2), dtype=np.int16)
+                grid._init_neighbor_table()
         except ValueError:
             pass # Keep current size if invalid
             
