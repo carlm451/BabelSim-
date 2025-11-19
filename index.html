@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Library of Babel Simulation</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Inter:wght@300;400;600&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>The Library of Babel</h1>
+            <p class="subtitle">Infinite Hexagonal Galleries Simulation</p>
+        </header>
+
+        <main>
+            <div class="canvas-wrapper">
+                <canvas id="simCanvas"></canvas>
+            </div>
+
+            <div class="controls">
+                <div class="stat-card">
+                    <span class="label">Total Rooms</span>
+                    <span class="value" id="roomCount">100</span>
+                </div>
+                <div class="stat-card">
+                    <span class="label">Disjoint Sections</span>
+                    <span class="value" id="loopCount">--</span>
+                </div>
+                <div class="stat-card">
+                    <span class="label">Longest Path</span>
+                    <span class="value" id="longestPath">--</span>
+                </div>
+
+                <div class="button-group">
+                    <div class="control-row">
+                        <label for="rngSize">Grid Size: <span id="lblSize">10</span></label>
+                        <input type="range" id="rngSize" min="5" max="50" value="10">
+                    </div>
+                    <div class="control-row">
+                        <input type="checkbox" id="chkLongestOnly">
+                        <label for="chkLongestOnly">Show Longest Only (Paused)</label>
+                    </div>
+                    <button id="btnReset" class="btn secondary">Reset (Organized)</button>
+                    <button id="btnScramble" class="btn primary">Scramble (MCMC)</button>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="script.js"></script>
+</body>
+
+</html>
