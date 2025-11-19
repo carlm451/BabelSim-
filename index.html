@@ -15,21 +15,26 @@
 <body>
     <div class="container">
         <header>
-            <h1>The Library of Babel</h1>
-            <p class="subtitle">Infinite Hexagonal Galleries Simulation</p>
+            <div class="header-left">
+                <h1>The Library of Babel</h1>
+                <p class="subtitle">Infinite Hexagonal Galleries Simulation</p>
+            </div>
+            <div class="header-right">
+                <div class="control-row">
+                    <label for="rngSize">Grid Size: <span id="lblSize">10</span></label>
+                    <input type="range" id="rngSize" min="5" max="200" value="10">
+                </div>
+                <div class="control-row">
+                    <input type="checkbox" id="chkLongestOnly">
+                    <label for="chkLongestOnly">Show Longest Only (Paused)</label>
+                </div>
+                <button id="btnReset" class="btn secondary">Reset (Organized)</button>
+                <button id="btnScramble" class="btn primary">Scramble (MCMC)</button>
+            </div>
         </header>
 
-        <div class="histogram-overlay">
-            <div class="label">Path Length PDF</div>
-            <canvas id="histogramCanvas"></canvas>
-        </div>
-
         <main>
-            <div class="canvas-wrapper">
-                <canvas id="simCanvas"></canvas>
-            </div>
-
-            <div class="controls">
+            <div class="stats-sidebar">
                 <div class="stat-card">
                     <span class="label">Total Rooms</span>
                     <span class="value" id="roomCount">100</span>
@@ -42,18 +47,21 @@
                     <span class="label">Longest Path</span>
                     <span class="value" id="longestPath">--</span>
                 </div>
+            </div>
 
-                <div class="button-group">
-                    <div class="control-row">
-                        <label for="rngSize">Grid Size: <span id="lblSize">10</span></label>
-                        <input type="range" id="rngSize" min="5" max="200" value="10">
-                    </div>
-                    <div class="control-row">
-                        <input type="checkbox" id="chkLongestOnly">
-                        <label for="chkLongestOnly">Show Longest Only (Paused)</label>
-                    </div>
-                    <button id="btnReset" class="btn secondary">Reset (Organized)</button>
-                    <button id="btnScramble" class="btn primary">Scramble (MCMC)</button>
+            <div class="canvas-wrapper">
+                <canvas id="simCanvas"></canvas>
+            </div>
+
+            <div class="right-panels">
+                <div class="histogram-panel">
+                    <div class="label">Path Length PDF</div>
+                    <canvas id="histogramCanvas"></canvas>
+                </div>
+
+                <div class="timeseries-panel">
+                    <div class="label">Longest Path (Time Series)</div>
+                    <canvas id="timeseriesCanvas"></canvas>
                 </div>
             </div>
         </main>

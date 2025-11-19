@@ -529,7 +529,106 @@ class Histogram {
     }
 }
 
+class TimeSeriesChart {
+    constructor(canvas) {
+        this.canvas = canvas;
+        this.dataPoints = [];
+        this.frameCount = 0;
+        this.minValue = Infinity;
+        this.maxValue = -Infinity;
+
+        // Create Chart.js instance
+        this.chart = new Chart(canvas, {
+            type: 'line',
+            data: {
+                datasets: [{
+                    label: 'Longest Path',
+                    data: [],
+                    borderColor: 'rgba(220, 38, 38, 1)',
+                    backgroundColor: 'rgba(220, 38, 38, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.1,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        type: 'linear',
+                        title: {
+                            display: true,
+                            text: 'Frame',
+                            font: { size: 10 }
+                        },
+                        ticks: { font: { size: 8 } }
+                    },
+                    y: {
+                        type: 'linear',
+                        title: {
+                            display: true,
+                            text: 'Longest Path Length',
+                            font: { size: 10 }
+                        },
+                        ticks: { font: { size: 8 } }
+                    }
+                },
+                plugins: {
+                    legend: { display: false }
+                },
+                animation: false
+            }
+        });
+    }
+
+    addDataPoint(longestPathLength) {
+        this.dataPoints.push({ x: this.frameCount, y: longestPathLength });
+        this.frameCount++;
+
+        // Update min/max for auto-scaling
+        if (longestPathLength < this.minValue) {
+            this.minValue = longestPathLength;
+        }
+        if (longestPathLength > this.maxValue) {
+            this.maxValue = longestPathLength;
+        }
+
+        this.updateChart();
+    }
+
+    updateChart() {
+        if (this.dataPoints.length === 0) {
+            this.chart.data.datasets[0].data = [];
+            this.chart.options.scales.y.min = undefined;
+            this.chart.options.scales.y.max = undefined;
+            this.chart.update('none');
+            return;
+        }
+
+        // Update data
+        this.chart.data.datasets[0].data = this.dataPoints;
+
+        // Auto-scale y-axis with small padding
+        const padding = (this.maxValue - this.minValue) * 0.1 || 1;
+        this.chart.options.scales.y.min = Math.max(0, this.minValue - padding);
+        this.chart.options.scales.y.max = this.maxValue + padding;
+
+        this.chart.update('none');
+    }
+
+    reset() {
+        this.dataPoints = [];
+        this.frameCount = 0;
+        this.minValue = Infinity;
+        this.maxValue = -Infinity;
+        this.updateChart();
+    }
+}
+
 const histogram = new Histogram(document.getElementById('histogramCanvas'));
+const timeSeriesChart = new TimeSeriesChart(document.getElementById('timeseriesCanvas'));
 
 async function fetchState() {
     const response = await fetch('/state');
@@ -570,6 +669,10 @@ async function scrambleStep() {
         const data = await response.json();
         renderer.draw(data);
 
+        // Update timeseries with longest path
+        const longestPath = data.loops.length > 0 ? Math.max(...data.loops.map(l => l.length)) : 0;
+        timeSeriesChart.addDataPoint(longestPath);
+
         scrambleFrameCount++;
         if (scrambleFrameCount % 10 === 0) {
             histogram.update(data.loops);
@@ -590,6 +693,7 @@ document.getElementById('btnScramble').addEventListener('click', () => {
     if (window.isScrambling) {
         btn.innerText = "Stop Scrambling";
         btn.classList.add('active');
+        timeSeriesChart.reset();
         scrambleStep();
     } else {
         btn.innerText = "Scramble (MCMC)";
@@ -616,6 +720,7 @@ document.getElementById('btnReset').addEventListener('click', async () => {
     histogram.reset();
     histogram.update(data.loops);
     histogram.updateChart();
+    timeSeriesChart.reset();
 });
 
 document.getElementById('chkLongestOnly').addEventListener('change', () => {
@@ -644,4 +749,5 @@ document.getElementById('rngSize').addEventListener('change', async (e) => {
     histogram.reset();
     histogram.update(data.loops);
     histogram.updateChart();
+    timeSeriesChart.reset();
 });
