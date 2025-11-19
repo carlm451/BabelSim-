@@ -19,6 +19,11 @@
             <p class="subtitle">Infinite Hexagonal Galleries Simulation</p>
         </header>
 
+        <div class="histogram-overlay">
+            <div class="label">Path Length PDF</div>
+            <canvas id="histogramCanvas"></canvas>
+        </div>
+
         <main>
             <div class="canvas-wrapper">
                 <canvas id="simCanvas"></canvas>
@@ -38,15 +43,10 @@
                     <span class="value" id="longestPath">--</span>
                 </div>
 
-                <div class="stat-card" style="flex: 1; min-height: 200px; padding: 1rem;">
-                    <div class="label" style="margin-bottom: 0.5rem;">Path Length Distribution</div>
-                    <canvas id="histogramCanvas"></canvas>
-                </div>
-
                 <div class="button-group">
                     <div class="control-row">
                         <label for="rngSize">Grid Size: <span id="lblSize">10</span></label>
-                        <input type="range" id="rngSize" min="5" max="50" value="10">
+                        <input type="range" id="rngSize" min="5" max="200" value="10">
                     </div>
                     <div class="control-row">
                         <input type="checkbox" id="chkLongestOnly">
@@ -58,6 +58,8 @@
             </div>
         </main>
     </div>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
     <script src="script.js"></script>
 </body>
 

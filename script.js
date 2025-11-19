@@ -129,27 +129,50 @@ class Renderer {
         ctx.lineJoin = 'round';
         ctx.shadowBlur = 0;
 
-        // Color Scale Parameters
-        // Min length is typically around N (gridSize) in the organized state.
-        // Max length is N*N (gridSize * gridSize).
-        const minScale = this.gridSize;
-        const maxScale = this.gridSize * this.gridSize;
+        // Create 8 log-spaced bins for discrete coloring (matching PDF)
+        const numColorBins = 8;
+        const lMin = 1.0 / this.gridSize;  // Rescaled min: 1/N
+        const lMax = this.gridSize;         // Rescaled max: N
+        const logMin = Math.log(lMin);
+        const logMax = Math.log(lMax);
+
+        // Create bin edges
+        const binEdges = [];
+        for (let i = 0; i <= numColorBins; i++) {
+            const logVal = logMin + (i / numColorBins) * (logMax - logMin);
+            binEdges.push(Math.exp(logVal));
+        }
+
+        // 8-color palette: dark blue -> bright red
+        const colorPalette = [
+            'hsl(240, 100%, 25%)',  // Dark blue (shortest loops)
+            'hsl(220, 100%, 35%)',  // Blue
+            'hsl(200, 100%, 45%)',  // Light blue
+            'hsl(180, 80%, 50%)',   // Cyan
+            'hsl(120, 70%, 45%)',   // Green
+            'hsl(60, 90%, 50%)',    // Yellow
+            'hsl(30, 100%, 55%)',   // Orange
+            'hsl(0, 100%, 50%)'     // Bright red (longest loops)
+        ];
 
         loops.forEach((loop, i) => {
             const len = loop.length;
+            const l = len / this.gridSize;  // Rescaled length
 
-            // Calculate normalized position t in [0, 1]
-            // We clamp it to ensure bounds
-            let t = (len - minScale) / (maxScale - minScale);
-            t = Math.max(0, Math.min(1, t));
+            // Find which bin this loop belongs to
+            let binIndex = 0;
+            for (let b = 0; b < numColorBins; b++) {
+                if (l >= binEdges[b] && l < binEdges[b + 1]) {
+                    binIndex = b;
+                    break;
+                }
+            }
+            // Handle edge case: l exactly equals lMax
+            if (l >= binEdges[numColorBins]) {
+                binIndex = numColorBins - 1;
+            }
 
-            // Map t to Hue: 240 (Blue) -> 0 (Red)
-            const hue = 240 * (1 - t);
-
-            // Map t to Lightness: 30% (Dark) -> 50% (Bright)
-            const lightness = 30 + 20 * t;
-
-            const color = `hsl(${hue}, 100%, ${lightness}%)`;
+            const color = colorPalette[binIndex];
             ctx.strokeStyle = color;
 
             // We need to draw segments individually to handle jumps
@@ -271,76 +294,238 @@ fetchState();
 class Histogram {
     constructor(canvas) {
         this.canvas = canvas;
-        this.ctx = canvas.getContext('2d');
-        this.counts = {}; // Map length -> count
-        this.maxCount = 0;
-        this.resize();
-        window.addEventListener('resize', () => this.resize());
+        this.numBins = 100;
+        this.gridSize = 10; // Default, will be updated
+        this.bins = new Float32Array(this.numBins);
+        this.binEdges = [];
+        this.binCenters = [];
+        this.totalSamples = 0;
+
+        this.initializeBins();
+
+        // 8-color palette (matching loop colors) with transparency
+        const colorPalette = [
+            'hsla(240, 100%, 25%, 0.15)',  // Dark blue
+            'hsla(220, 100%, 35%, 0.15)',  // Blue
+            'hsla(200, 100%, 45%, 0.15)',  // Light blue
+            'hsla(180, 80%, 50%, 0.15)',   // Cyan
+            'hsla(120, 70%, 45%, 0.15)',   // Green
+            'hsla(60, 90%, 50%, 0.15)',    // Yellow
+            'hsla(30, 100%, 55%, 0.15)',   // Orange
+            'hsla(0, 100%, 50%, 0.15)'     // Bright red
+        ];
+
+        // Calculate initial color bin edges
+        const colorBinEdges = this.calculateColorBinEdges();
+
+        // Build annotation objects for 8 color boxes
+        const annotations = {
+            maxPathLine: {
+                type: 'line',
+                xMin: this.gridSize,
+                xMax: this.gridSize,
+                borderColor: 'red',
+                borderWidth: 2,
+                borderDash: [5, 5],
+                label: {
+                    display: true,
+                    content: 'Max Path (N)',
+                    position: 'start',
+                    backgroundColor: 'rgba(255, 0, 0, 0.8)',
+                    color: 'white',
+                    font: { size: 9 }
+                }
+            }
+        };
+
+        // Add 8 color box annotations
+        for (let i = 0; i < 8; i++) {
+            annotations[`colorBox${i}`] = {
+                type: 'box',
+                xMin: colorBinEdges[i],
+                xMax: colorBinEdges[i + 1],
+                yMin: 0,
+                yMax: 1e10,  // Large value to cover full y-axis
+                backgroundColor: colorPalette[i],
+                borderWidth: 0,
+                drawTime: 'beforeDatasetsDraw'  // Draw behind data
+            };
+        }
+
+        // Create Chart.js instance
+        this.chart = new Chart(canvas, {
+            type: 'line',
+            data: {
+                labels: this.binCenters,
+                datasets: [{
+                    label: 'PDF',
+                    data: [],
+                    backgroundColor: 'rgba(0, 113, 227, 0.2)',
+                    borderColor: 'rgba(0, 113, 227, 1)',
+                    borderWidth: 2,
+                    pointStyle: 'circle',
+                    pointRadius: 4,
+                    pointBackgroundColor: 'rgba(0, 113, 227, 1)',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 1,
+                    showLine: true,
+                    tension: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        type: 'logarithmic',
+                        title: {
+                            display: true,
+                            text: 'Rescaled Length (l = length/N)',
+                            font: { size: 10 }
+                        },
+                        ticks: { font: { size: 8 } }
+                    },
+                    y: {
+                        type: 'logarithmic',
+                        title: {
+                            display: true,
+                            text: 'Probability Density',
+                            font: { size: 10 }
+                        },
+                        ticks: { font: { size: 8 } }
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    annotation: {
+                        annotations: annotations
+                    }
+                }
+            }
+        });
     }
 
-    resize() {
-        const rect = this.canvas.parentElement.getBoundingClientRect();
-        // Account for padding in parent
-        this.canvas.width = rect.width - 32;
-        this.canvas.height = rect.height - 40;
-        this.draw();
+    initializeBins() {
+        // Create log-spaced bins from 1/N to N
+        const lMin = 1.0 / this.gridSize;
+        const lMax = this.gridSize;
+        const logMin = Math.log(lMin);
+        const logMax = Math.log(lMax);
+
+        this.binEdges = [];
+        this.binCenters = [];
+
+        // Create numBins + 1 edges
+        for (let i = 0; i <= this.numBins; i++) {
+            const logVal = logMin + (i / this.numBins) * (logMax - logMin);
+            this.binEdges.push(Math.exp(logVal));
+        }
+
+        // Compute bin centers (geometric mean of edges)
+        for (let i = 0; i < this.numBins; i++) {
+            this.binCenters[i] = Math.sqrt(this.binEdges[i] * this.binEdges[i + 1]);
+        }
+    }
+
+    calculateColorBinEdges() {
+        // Calculate 8 log-spaced bins for color regions (matching loop colors)
+        const numColorBins = 8;
+        const lMin = 1.0 / this.gridSize;
+        const lMax = this.gridSize;
+        const logMin = Math.log(lMin);
+        const logMax = Math.log(lMax);
+
+        const colorBinEdges = [];
+        for (let i = 0; i <= numColorBins; i++) {
+            const logVal = logMin + (i / numColorBins) * (logMax - logMin);
+            colorBinEdges.push(Math.exp(logVal));
+        }
+        return colorBinEdges;
+    }
+
+    setGridSize(N) {
+        if (N !== this.gridSize) {
+            this.gridSize = N;
+            this.initializeBins();
+
+            // Recalculate color bin edges
+            const colorBinEdges = this.calculateColorBinEdges();
+
+            // Update the annotation line position
+            this.chart.options.plugins.annotation.annotations.maxPathLine.xMin = N;
+            this.chart.options.plugins.annotation.annotations.maxPathLine.xMax = N;
+
+            // Update the 8 color box positions
+            for (let i = 0; i < 8; i++) {
+                const boxAnnotation = this.chart.options.plugins.annotation.annotations[`colorBox${i}`];
+                boxAnnotation.xMin = colorBinEdges[i];
+                boxAnnotation.xMax = colorBinEdges[i + 1];
+            }
+
+            this.reset();
+        }
     }
 
     reset() {
-        this.counts = {};
-        this.maxCount = 0;
-        this.draw();
+        this.bins.fill(0);
+        this.totalSamples = 0;
+        this.updateChart();
     }
 
     update(loops) {
         if (!loops) return;
+
         loops.forEach(loop => {
-            const len = loop.length;
-            this.counts[len] = (this.counts[len] || 0) + 1;
-            if (this.counts[len] > this.maxCount) {
-                this.maxCount = this.counts[len];
+            const length = loop.length;
+            const l = length / this.gridSize; // Rescaled variable
+
+            // Find bin index using binary search
+            let binIndex = -1;
+            for (let i = 0; i < this.numBins; i++) {
+                if (l >= this.binEdges[i] && l < this.binEdges[i + 1]) {
+                    binIndex = i;
+                    break;
+                }
+            }
+
+            // Handle edge case: l exactly equals lMax
+            if (l === this.binEdges[this.numBins]) {
+                binIndex = this.numBins - 1;
+            }
+
+            if (binIndex >= 0 && binIndex < this.numBins) {
+                this.bins[binIndex]++;
+                this.totalSamples++;
             }
         });
-        this.draw();
     }
 
+    updateChart() {
+        if (this.totalSamples === 0) {
+            this.chart.data.datasets[0].data = [];
+            this.chart.update('none'); // 'none' mode skips animation
+            return;
+        }
+
+        // Compute probability density function
+        const pdfData = [];
+        for (let i = 0; i < this.numBins; i++) {
+            const binWidth = this.binEdges[i + 1] - this.binEdges[i];
+            const density = this.bins[i] / (this.totalSamples * binWidth);
+
+            // Only add non-zero values for cleaner log plot
+            if (density > 0) {
+                pdfData.push({ x: this.binCenters[i], y: density });
+            }
+        }
+
+        this.chart.data.datasets[0].data = pdfData;
+        this.chart.update('none'); // Skip animation for performance
+    }
+
+    // Keep draw() for compatibility, but it just calls updateChart()
     draw() {
-        const ctx = this.ctx;
-        const w = this.canvas.width;
-        const h = this.canvas.height;
-
-        ctx.clearRect(0, 0, w, h);
-
-        const lengths = Object.keys(this.counts).map(Number).sort((a, b) => a - b);
-        if (lengths.length === 0) return;
-
-        const minLen = lengths[0];
-        const maxLen = lengths[lengths.length - 1];
-        // X-axis range: 0 to maxLen (or slightly more)
-        const xMax = Math.max(maxLen, 10);
-
-        const barWidth = w / (xMax + 1);
-
-        ctx.fillStyle = '#0071e3';
-
-        lengths.forEach(len => {
-            const count = this.counts[len];
-            const barHeight = (count / this.maxCount) * h;
-            const x = (len / xMax) * w;
-            const y = h - barHeight;
-
-            ctx.fillRect(x, y, Math.max(1, barWidth - 1), barHeight);
-        });
-
-        // Draw labels (simplified)
-        ctx.fillStyle = '#86868b';
-        ctx.font = '10px Inter';
-        ctx.textAlign = 'right';
-        ctx.fillText(this.maxCount, w - 2, 10);
-        ctx.textAlign = 'left';
-        ctx.fillText('0', 2, h - 2);
-        ctx.textAlign = 'right';
-        ctx.fillText(xMax, w - 2, h - 2);
+        this.updateChart();
     }
 }
 
@@ -353,12 +538,10 @@ async function fetchState() {
     // Update slider to match backend state
     document.getElementById('rngSize').value = data.size;
     document.getElementById('lblSize').innerText = data.size;
-    // Don't update histogram on initial fetch to avoid double counting or counting organized state too much?
-    // Actually, user wants "sampled path lengths as the simulation is running".
-    // So maybe only update during scramble?
-    // But seeing the initial state distribution is also useful.
-    // Let's update it.
+    // Set histogram grid size and update
+    histogram.setGridSize(data.size);
     histogram.update(data.loops);
+    histogram.updateChart();
 }
 
 let scrambleFrameCount = 0;
@@ -390,6 +573,7 @@ async function scrambleStep() {
         scrambleFrameCount++;
         if (scrambleFrameCount % 10 === 0) {
             histogram.update(data.loops);
+            histogram.updateChart();
         }
     } catch (e) {
         console.error("Scramble loop error:", e);
@@ -428,8 +612,10 @@ document.getElementById('btnReset').addEventListener('click', async () => {
     });
     const data = await response.json();
     renderer.draw(data);
+    histogram.setGridSize(data.size);
     histogram.reset();
     histogram.update(data.loops);
+    histogram.updateChart();
 });
 
 document.getElementById('chkLongestOnly').addEventListener('change', () => {
@@ -454,6 +640,8 @@ document.getElementById('rngSize').addEventListener('change', async (e) => {
     });
     const data = await response.json();
     renderer.draw(data);
+    histogram.setGridSize(data.size);
     histogram.reset();
     histogram.update(data.loops);
+    histogram.updateChart();
 });

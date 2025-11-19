@@ -255,7 +255,7 @@ def reset():
         try:
             new_size = int(new_size)
             # Clamp size to safe limits
-            new_size = max(5, min(50, new_size))
+            new_size = max(5, min(200, new_size))
             grid.size = new_size
         except ValueError:
             pass # Keep current size if invalid

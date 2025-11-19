@@ -168,3 +168,32 @@ canvas {
 .btn.secondary:hover {
     background: var(--accent-dim);
 }
+
+.histogram-overlay {
+    position: absolute;
+    top: 120px;
+    right: 2rem;
+    width: 280px;
+    height: 280px;
+    background: var(--card-bg);
+    border: 1px solid var(--hex-border);
+    border-radius: 12px;
+    padding: 1rem;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.histogram-overlay .label {
+    font-size: 0.8rem;
+    color: #86868b;
+    text-transform: uppercase;
+}
+
+.histogram-overlay canvas {
+    flex: 1;
+    width: 100% !important;
+    height: 100% !important;
+}
