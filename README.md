@@ -2,7 +2,7 @@
 
 A web-based simulation of the "Library of Babel" room layout, exploring the properties of random walks and loops on a hexagonal grid with periodic boundary conditions.
 
-![BabelSim Application](babelhexapp.png)
+![BabelSim Application](babelhexapp2.png)
 
 ## Overview
 
